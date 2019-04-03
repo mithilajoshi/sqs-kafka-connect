@@ -1,5 +1,4 @@
 import sbt._
-import sbtassembly.AssemblyKeys
 import scala.language.postfixOps
 
 enablePlugins(GitVersioning)
@@ -7,6 +6,7 @@ git.useGitDescribe := true
 
 name := "sqs-kafka-connect"
 organization := "com.hivehome"
+version := "1.0.0-SNAPSHOT"
 
 scalaVersion in ThisBuild := "2.11.8"
 crossScalaVersions := Seq("2.11.8", "2.12.0")
@@ -18,13 +18,35 @@ ivyScala := ivyScala.value map {
 scalacOptions ++= Seq("-unchecked", "-deprecation", "-feature")
 updateOptions := updateOptions.value.withCachedResolution(true)
 
+def isSnapshotVersion(version: String): Boolean = {
+  version.contains("SNAPSHOT")
+}
+
+lazy val prepCreds = taskKey[Unit]("Sets up publishing credentials")
+prepCreds := {
+  val s: TaskStreams = streams.value
+  s.log.info("Setting up artifactory creds for publishing.")
+  Process("./prepcreds.bash").!
+  s.log.info("Done. Artifactory creds are ready.")
+}
+credentials += Credentials(file(".credentials")) // See prepCreds task
+
+
+val sf_releases: MavenRepository = "StitchFix releases" at "http://artifactory.vertigo.stitchfix.com/artifactory/releases"
+val sf_snapshots: MavenRepository = "StitchFix snapshots" at "http://artifactory.vertigo.stitchfix.com/artifactory/snapshots"
+resolvers ++= Seq(sf_releases, sf_snapshots)
+
+// Version dependent publishing
+// Snapshots can be overwritten, but not releases.
+publishTo := (version apply { (v: String) =>
+  Some(if (isSnapshotVersion(v)) sf_snapshots else sf_releases)
+}).value
+
 val artifactoryRepository = "Artifactory" at "https://bgchops.jfrog.io/bgchops/dataplatform-maven-releases/"
 resolvers in ThisBuild ++= Seq(
   artifactoryRepository,
   "Confluent" at "http://packages.confluent.io/maven/"
 )
-
-publishTo := Some(artifactoryRepository)
 
 lazy val dependencies = Seq(
   "com.amazonaws" % "aws-java-sdk" % Versions.AwsSdk,
